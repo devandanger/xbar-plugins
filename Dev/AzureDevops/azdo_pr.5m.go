@@ -11,9 +11,28 @@ package main
 
 import (
 	"fmt"
+	"encoding/json"
 	"os"
 	"time"
+	"net/http"
+	"net/url"
+	"io/ioutil"
 )
+
+type Repository struct {
+	Id string
+	Name string
+	Url string
+}
+
+type PullRequest struct {
+	Repository Repository
+	Url string
+	Title string
+	Status string
+	MergeStatus string
+	IsDraft bool
+}
 
 func main() {
 	printOutput()
@@ -38,15 +57,18 @@ func printOutput() {
 	}
 	PAT, PATValid := checkEnv("AZDO_PAT")
 	if !PATValid {
-		fmt.Println("Unable to load value from", "AZDO_USER")
+		fmt.Println("Unable to load value from", "AZDO_PAT")
 		return
 	}
 
-	getPR(org, project, user, PAT)
+	pullRequests := getPR(org, project, user, PAT)
 
 	fmt.Println("")
 	fmt.Println("My Pull Requests")
 	fmt.Println("---")
+	for _, pr := range pullRequests {
+		fmt.Println(pr.Repository.Name, "/", pr.Title)
+	}
 	fmt.Println("Assigned Pull Requests")
 	fmt.Println("---")
 	val := DoneAsync()
@@ -63,9 +85,54 @@ func checkEnv(key string) (string, bool) {
 	}
 }
 
-func getPR(org string, project string, user string, PAT string) {
+func getPR(org string, project string, user string, PAT string) []PullRequest {
+	urlString := "https://dev.azure.com/" + org + "/" + project + "/_apis/git/pullrequests?api-version=6.1-preview.1"
+	reqUrl, _ := url.Parse(urlString)
+	request := &http.Request {
+		Method: "GET",
+		URL: reqUrl,
+		Header: map[string][]string {
+			
+		},
+	}
 
+	request.SetBasicAuth(user, PAT)
+	res, err := http.DefaultClient.Do(request)
+
+	if err != nil {
+		fmt.Println("Error making requests")
+		return []PullRequest{}
+	}
+
+	data, _ := ioutil.ReadAll(res.Body)
+	res.Body.Close()
+
+	return getPRData(data)
 }
+
+func getPRData(data []byte) [] PullRequest {
+	type PullRequestData struct {
+		Value []PullRequest
+		Count json.Number
+	}
+
+	// var jsonBlob = []byte(`
+	// {
+	// 	"value": [],
+	// 	"count": 3
+	// }`)
+
+	var result PullRequestData
+	err := json.Unmarshal(data, &result)
+	if err != nil {
+		fmt.Println(err)
+		return []PullRequest{}
+	}
+	fmt.Println("Result:", result)
+	return result.Value
+}
+
+
 
 func DoneAsync() chan int {
 	r := make(chan int)
